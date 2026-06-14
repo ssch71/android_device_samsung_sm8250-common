@@ -1,0 +1,64 @@
+name: Astra Kernel 23.2 CI
+
+on:
+  workflow_dispatch: # 수동으로 빌드 버튼 누를 때 실행
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 1. 러너 디스크 공간 강제 확보 (우회술)
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf "/usr/local/share/boost"
+        df -h
+
+    - name: 2. 빌드 필수 패키지 설치
+      run: |
+        sudo apt update
+        sudo apt install -y bc build-essential libncurses5-dev libssl-dev xz-utils binutils git ccache clang lld libelf-dev
+
+    - name: 3. 리니지OS 23.2 커널 소스 다운로드 (Shallow Clone)
+      run: |
+        # 탭 S7 리니지 23.2 레포 주소와 브랜치명에 맞게 수정 필요
+        git clone https://github.com/LineageOS/android_kernel_samsung_sm8250.git -b lineage-23.2 --depth=1 kernel
+        
+    - name: 4. AOSP Clang 툴체인 다운로드
+      run: |
+        mkdir clang
+        cd clang
+        wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r522817.tar.gz
+        tar -xf clang-r522817.tar.gz
+        cd ..
+
+    - name: 5. 커널 소스 수정 및 defconfig 세팅 (Permissive 모드 강제 주입)
+      run: |
+        cd kernel
+        # 여기에 원우이 8.0 부팅을 위해 defconfig 파일에 Permissive 옵션 넣는 스크립트 작성
+        # 예시: echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> arch/arm64/configs/gts7xl_defconfig
+        cd ..
+
+    - name: 6. 대망의 커널 컴파일 시작
+      run: |
+        cd kernel
+        export PATH=$(pwd)/../clang/bin:$PATH
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CC=clang
+        
+        # 1) 디바이스 환경설정 로드
+        make gts7xl_defconfig # 실제 defconfig 이름으로 매칭 필수
+        
+        # 2) 빌드 슛 (-j2 옵션으로 2코어 램 한도 내에서 안전하게 빌드)
+        make -j2
+        cd ..
+
+    - name: 7. 빌드 완료된 boot.img 깃허브 아티팩트로 업로드
+      uses: actions/upload-artifact@v4
+      with:
+        name: Astra_Kernel_v2_Boot
+        path: kernel/arch/arm64/boot/Image.gz # 또는 생성된 boot.img 경로
